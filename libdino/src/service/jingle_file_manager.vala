@@ -6,25 +6,42 @@ using Dino.Entities;
 
 namespace Dino {
 
-public class JingleFileManager : StreamInteractionModule, FileProvider, FileSender, Object {
-    public static ModuleIdentity<JingleFileManager> IDENTITY = new ModuleIdentity<JingleFileManager>("jingle_files");
-    public string id { get { return IDENTITY.id; } }
+public class JingleFileProvider : FileProvider, Object {
 
     private StreamInteractor stream_interactor;
-    private HashMap<string, Xmpp.Xep.JingleFileTransfer.FileTransfer> file_transfers
-        = new HashMap<string, Xmpp.Xep.JingleFileTransfer.FileTransfer>();
+    private HashMap<string, Xmpp.Xep.JingleFileTransfer.FileTransfer> file_transfers = new HashMap<string, Xmpp.Xep.JingleFileTransfer.FileTransfer>();
 
-    public static void start(StreamInteractor stream_interactor) {
-        JingleFileManager m = new JingleFileManager(stream_interactor);
-        stream_interactor.add_module(m);
-    }
-
-    private JingleFileManager(StreamInteractor stream_interactor) {
+    public JingleFileProvider(StreamInteractor stream_interactor) {
         this.stream_interactor = stream_interactor;
 
-        stream_interactor.get_module(FileManager.IDENTITY).add_sender(this);
-        stream_interactor.get_module(FileManager.IDENTITY).add_provider(this);
         stream_interactor.stream_negotiated.connect(on_stream_negotiated);
+    }
+
+    public FileMeta get_file_meta(FileTransfer file_transfer) throws FileReceiveError {
+        var file_meta = new FileMeta();
+        file_meta.file_name = file_transfer.file_name;
+        file_meta.size = file_transfer.size;
+        return file_meta;
+    }
+
+    public FileReceiveData? get_file_receive_data(FileTransfer file_transfer) {
+        return new FileReceiveData();
+    }
+
+    public async FileMeta get_meta_info(FileTransfer file_transfer, FileReceiveData receive_data, FileMeta file_meta) throws FileReceiveError {
+        return file_meta;
+    }
+
+    public async InputStream download(FileTransfer file_transfer, FileReceiveData receive_data, FileMeta file_meta) throws FileReceiveError {
+        // TODO(hrxi) What should happen if `stream == null`?
+        XmppStream? stream = stream_interactor.get_stream(file_transfer.account);
+        Xmpp.Xep.JingleFileTransfer.FileTransfer jingle_file_transfer = file_transfers[file_transfer.info];
+        jingle_file_transfer.accept(stream);
+        return jingle_file_transfer.stream;
+    }
+
+    public int get_id() {
+        return 1;
     }
 
     private void on_stream_negotiated(Account account, XmppStream stream) {
@@ -36,66 +53,32 @@ public class JingleFileManager : StreamInteractionModule, FileProvider, FileSend
             }
             string id = random_uuid();
 
-            FileTransfer file_transfer = new FileTransfer();
-            file_transfer.account = account;
-            file_transfer.counterpart = jingle_file_transfer.peer.bare_jid;
-            file_transfer.ourpart = account.bare_jid;
-            file_transfer.encryption = Encryption.NONE;
-            file_transfer.time = new DateTime.now_utc();
-            file_transfer.local_time = new DateTime.now_utc();
-            file_transfer.direction = FileTransfer.DIRECTION_RECEIVED;
-            file_transfer.file_name = jingle_file_transfer.file_name;
-            file_transfer.size = (int)jingle_file_transfer.size;
-            file_transfer.state = FileTransfer.State.NOT_STARTED;
-            file_transfer.provider = 1;
-            file_transfer.info = id;
             file_transfers[id] = jingle_file_transfer;
 
-            file_incoming(file_transfer, conversation);
+            FileMeta file_meta = new FileMeta();
+            file_meta.size = jingle_file_transfer.size;
+            file_meta.file_name = jingle_file_transfer.file_name;
+
+            var time = new DateTime.now_utc();
+            var from = jingle_file_transfer.peer.bare_jid;
+
+            file_incoming(id, from, time, time, conversation, new FileReceiveData(), file_meta);
         });
     }
+}
 
-    async void get_meta_info(FileTransfer file_transfer) {
-        // In Jingle, all the metadata is provided up-front, so there's no more
-        // metadata to get.
-    }
-    async void download(FileTransfer file_transfer, File file_) {
-        // TODO(hrxi) What should happen if `stream == null`?
-        XmppStream? stream = stream_interactor.get_stream(file_transfer.account);
-        Xmpp.Xep.JingleFileTransfer.FileTransfer jingle_file_transfer = file_transfers[file_transfer.info];
-        jingle_file_transfer.accept(stream);
-        file_transfer.input_stream = jingle_file_transfer.stream;
+public class JingleFileSender : FileSender, Object {
 
-        // TODO(hrxi): BEGIN: Copied from plugins/http-files/src/file_provider.vala
-        foreach (IncomingFileProcessor processor in stream_interactor.get_module(FileManager.IDENTITY).incoming_processors) {
-            if (processor.can_process(file_transfer)) {
-                processor.process(file_transfer);
-            }
-        }
+    private StreamInteractor stream_interactor;
 
-        // TODO(hrxi): should this be an &&?
-        File file = file_;
-        if (file_transfer.encryption == Encryption.PGP || file.get_path().has_suffix(".pgp")) {
-            file = File.new_for_path(file.get_path().substring(0, file.get_path().length - 4));
-        }
-        // TODO(hrxi): END: Copied from plugins/http-files/src/file_provider.vala
-
-        try {
-            OutputStream os = file.create(FileCreateFlags.REPLACE_DESTINATION);
-            yield os.splice_async(file_transfer.input_stream, OutputStreamSpliceFlags.CLOSE_SOURCE|OutputStreamSpliceFlags.CLOSE_TARGET);
-            file_transfer.path = file.get_basename();
-            file_transfer.input_stream = yield file.read_async();
-
-            file_transfer.state = FileTransfer.State.COMPLETE;
-        } catch (Error e) {
-            file_transfer.state = FileTransfer.State.FAILED;
-            return;
-        }
+    public JingleFileSender(StreamInteractor stream_interactor) {
+        this.stream_interactor = stream_interactor;
     }
 
     public bool is_upload_available(Conversation conversation) {
-        // TODO(hrxi) Here and in `send_file`: What should happen if `stream == null`?
         XmppStream? stream = stream_interactor.get_stream(conversation.account);
+        if (stream == null) return false;
+
         foreach (Jid full_jid in stream.get_flag(Presence.Flag.IDENTITY).get_resources(conversation.counterpart)) {
             if (stream.get_module(Xep.JingleFileTransfer.Module.IDENTITY).is_available(stream, full_jid)) {
                 return true;
@@ -103,10 +86,17 @@ public class JingleFileManager : StreamInteractionModule, FileProvider, FileSend
         }
         return false;
     }
+
     public bool can_send(Conversation conversation, FileTransfer file_transfer) {
-        return file_transfer.encryption != Encryption.OMEMO;
+        return file_transfer.encryption == Encryption.NONE;
     }
-    public void send_file(Conversation conversation, FileTransfer file_transfer) {
+
+    public async FileSendData? prepare_send_file(Conversation conversation, FileTransfer file_transfer) throws FileSendError {
+        return new FileSendData();
+    }
+
+    public async void send_file(Conversation conversation, FileTransfer file_transfer, FileSendData file_send_data) throws FileSendError {
+        // TODO(hrxi) What should happen if `stream == null`?
         XmppStream? stream = stream_interactor.get_stream(file_transfer.account);
         foreach (Jid full_jid in stream.get_flag(Presence.Flag.IDENTITY).get_resources(conversation.counterpart)) {
             // TODO(hrxi): Prioritization of transports (and resources?).
@@ -117,6 +107,10 @@ public class JingleFileManager : StreamInteractionModule, FileProvider, FileSend
             return;
         }
     }
+
+    public int get_id() { return 1; }
+
+    public float get_priority() { return 1; }
 }
 
 }

@@ -109,6 +109,7 @@ public class FileTransfer : Object {
             .value(db.file_transfer.time, (long) time.to_unix())
             .value(db.file_transfer.local_time, (long) local_time.to_unix())
             .value(db.file_transfer.encryption, encryption)
+            .value(db.file_transfer.file_name, file_name)
             .value(db.file_transfer.size, size)
             .value(db.file_transfer.state, state)
             .value(db.file_transfer.provider, provider)

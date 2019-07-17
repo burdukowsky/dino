@@ -33,6 +33,9 @@ public class FileManager : StreamInteractionModule, Object {
         this.stream_interactor = stream_interactor;
         this.db = db;
         DirUtils.create_with_parents(get_storage_dir(), 0700);
+
+        this.add_provider(new JingleFileProvider(stream_interactor));
+        this.add_sender(new JingleFileSender(stream_interactor));
     }
 
     public async void send_file(string uri, Conversation conversation) {
@@ -91,6 +94,7 @@ public class FileManager : StreamInteractionModule, Object {
                 break;
             }
 
+            conversation.last_active = file_transfer.time;
             received_file(file_transfer, conversation);
         } catch (Error e) {
             warning("Send file error: %s", e.message);
@@ -199,7 +203,7 @@ public class FileManager : StreamInteractionModule, Object {
 
             file_meta = yield file_provider.get_meta_info(file_transfer, receive_data, file_meta);
 
-            file_transfer.size = file_meta.size;
+            file_transfer.size = (int)file_meta.size;
             file_transfer.file_name = file_meta.file_name;
             file_transfer.mime_type = file_meta.mime_type;
         }
@@ -251,7 +255,7 @@ public class FileManager : StreamInteractionModule, Object {
             OutputStream os = file.create(FileCreateFlags.REPLACE_DESTINATION);
             yield os.splice_async(input_stream, 0);
             os.close();
-            file_transfer.size = file_meta.size;
+            file_transfer.size = (int)file_meta.size;
             file_transfer.file_name = file_meta.file_name;
             file_transfer.path = file.get_basename();
             file_transfer.input_stream = yield file.read_async();
@@ -276,6 +280,7 @@ public class FileManager : StreamInteractionModule, Object {
         file_transfer.local_time = local_time;
         file_transfer.provider = file_provider.get_id();
         file_transfer.file_name = file_meta.file_name;
+        file_transfer.size = (int)file_meta.size;
         file_transfer.info = info;
 
         file_transfer.persist(db);
@@ -284,7 +289,7 @@ public class FileManager : StreamInteractionModule, Object {
             try {
                 yield get_file_meta(file_provider, file_transfer, conversation, receive_data);
 
-                if (file_transfer.size >= 0 && file_transfer.size < 1) {
+                if (file_transfer.size >= 0 && file_transfer.size < 5000000) {
                     yield download_file_internal(file_provider, file_transfer, conversation);
                 }
             } catch (Error e) {
@@ -292,6 +297,8 @@ public class FileManager : StreamInteractionModule, Object {
                 file_transfer.state = FileTransfer.State.FAILED;
             }
         }
+
+        conversation.last_active = file_transfer.time;
         received_file(file_transfer, conversation);
     }
 
@@ -324,7 +331,7 @@ public errordomain FileReceiveError {
 }
 
 public class FileMeta {
-    public int size = -1;
+    public int64 size = -1;
     public string? mime_type = null;
     public string? file_name = null;
     public Encryption encryption = Encryption.NONE;

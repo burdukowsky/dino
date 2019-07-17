@@ -13,7 +13,6 @@ public class HttpFileSender : FileSender, Object {
         this.stream_interactor = stream_interactor;
         this.db = db;
 
-        stream_interactor.get_module(FileManager.IDENTITY).add_sender(this);
         stream_interactor.stream_negotiated.connect(on_stream_negotiated);
         stream_interactor.get_module(MessageProcessor.IDENTITY).build_message_stanza.connect(check_add_oob);
     }

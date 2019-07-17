@@ -16,7 +16,7 @@ public class Plugin : RootInterface, Object {
         file_sender = new HttpFileSender(app.stream_interactor, app.db);
 
         app.stream_interactor.get_module(FileManager.IDENTITY).add_provider(file_provider);
-        app.stream_interactor.get_module(FileManager.IDENTITY).add_sender(file_sender);
+//        app.stream_interactor.get_module(FileManager.IDENTITY).add_sender(file_sender);
 
         app.stream_interactor.get_module(ContentItemStore.IDENTITY).add_filter(new FileMessageFilter(app.db));
     }

@@ -29,7 +29,6 @@ public class FileWidget : Box {
     private Spinner spinner;
     private Label mime_label;
     private Stack image_stack;
-    private Label action_label;
 
     private Widget content;
 
@@ -137,7 +136,7 @@ public class FileWidget : Box {
 
     private Widget getDefaultWidget(FileTransfer file_transfer) {
         main_box = new Box(Orientation.HORIZONTAL, 4) { halign=Align.FILL, hexpand=true, visible=true };
-        icon_name = file_transfer.mime_type != null ? ContentType.get_generic_icon_name(file_transfer.mime_type) : null;
+        icon_name = ContentType.get_generic_icon_name(file_transfer.mime_type ?? "application/octet-stream");
         content_type_image = new Image.from_icon_name(icon_name + "-symbolic", IconSize.DND) { visible=true };
         download_image = new Image.from_icon_name("folder-download-symbolic", IconSize.MENU) { visible=true };
         spinner = new Spinner() { visible=true };
@@ -158,17 +157,10 @@ public class FileWidget : Box {
         EventBox mime_label_event_box = new EventBox() { visible=true };
         mime_label = new Label("") { use_markup=true, xalign=0, yalign=1, visible=true};
 
-        Stack mime_action_stack = new Stack() { visible=true };
-
         mime_label_event_box.add(mime_label);
         mime_label.get_style_context().add_class("dim-label");
-        mime_action_stack.add_named(mime_label_event_box, "mime");
 
-        action_label = new Label("") { use_markup=true, xalign=0, yalign=1, visible=true };
-        Util.force_css(action_label, "* { color: @theme_selected_bg_color; }");
-        mime_action_stack.add_named(action_label, "action");
-
-        right_box.add(mime_action_stack);
+        right_box.add(mime_label_event_box);
         main_box.add(right_box);
 
         EventBox event_box = new EventBox() { margin_top=5, width_request=500, halign=Align.START, visible=true };
@@ -183,12 +175,8 @@ public class FileWidget : Box {
                     event.get_window().set_cursor(new Cursor.for_display(Gdk.Display.get_default(), CursorType.HAND2));
                     if (file_transfer.state == FileTransfer.State.NOT_STARTED) {
                         image_stack.set_visible_child_name("download_image");
-//                        mime_action_stack.set_visible_child_name("action");
-//                        action_label.label = "<span size='small'>Download</span>";
                     } else if (file_transfer.state == FileTransfer.State.COMPLETE) {
                         content_type_image.opacity = 1;
-                        //                        mime_action_stack.set_visible_child_name("action");
-//                        action_label.label = "<span size='small'>Open</span>";
                     }
                 }
                 return false;
@@ -203,7 +191,6 @@ public class FileWidget : Box {
             Timeout.add(20, () => {
                 if (!pointer_inside) {
                     event.get_window().set_cursor(new Cursor.for_display(Gdk.Display.get_default(), CursorType.XTERM));
-                    mime_action_stack.set_visible_child_name("mime");
                     if (file_transfer.state == FileTransfer.State.NOT_STARTED) {
                         image_stack.set_visible_child_name("content_type_image");
                     } else if (file_transfer.state == FileTransfer.State.COMPLETE) {
@@ -244,8 +231,6 @@ public class FileWidget : Box {
         name_label.events = EventMask.POINTER_MOTION_MASK;
         mime_label.events = EventMask.POINTER_MOTION_MASK;
         event_box.events = EventMask.POINTER_MOTION_MASK;
-        mime_action_stack.events = EventMask.POINTER_MOTION_MASK;
-        action_label.events = EventMask.POINTER_MOTION_MASK;
         mime_label.events = EventMask.POINTER_MOTION_MASK;
         mime_label_event_box.events = EventMask.POINTER_MOTION_MASK;
 
@@ -279,7 +264,11 @@ public class FileWidget : Box {
                 image_stack.set_visible_child_name("spinner");
                 break;
             case FileTransfer.State.NOT_STARTED:
-                mime_label.label = "<span size='small'>" + _("%s file offered: %s").printf(mime_caps, get_size_string(file_transfer.size)) + "</span>";
+                if (mime_caps != null) {
+                    mime_label.label = "<span size='small'>" + _("%s file offered: %s").printf(mime_caps, get_size_string(file_transfer.size)) + "</span>";
+                } else {
+                    mime_label.label = "<span size='small'>" + _("File offered: %s").printf(get_size_string(file_transfer.size)) + "</span>";
+                }
                 image_stack.set_visible_child_name("content_type_image");
                 break;
         }

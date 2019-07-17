@@ -59,16 +59,28 @@ public class FileManager : StreamInteractionModule, Object {
             yield save_file(file_transfer);
 
             file_transfer.persist(db);
+            received_file(file_transfer, conversation);
+        } catch (Error e) {
+            file_transfer.state = FileTransfer.State.FAILED;
+            warning("Error saving outgoing file: %s", e.message);
+            return;
+        }
 
+        try {
             var file_meta = new FileMeta();
             file_meta.size = file_transfer.size;
             file_meta.mime_type = file_transfer.mime_type;
 
+            bool encrypted = false;
             foreach (FileEncryptor file_encryptor in file_encryptors) {
                 if (file_encryptor.can_encrypt_file(conversation, file_transfer)) {
                     file_meta = file_encryptor.encrypt_file(conversation, file_transfer);
+                    encrypted = true;
                     break;
                 }
+            }
+            if (conversation.encryption != Encryption.NONE && !encrypted) {
+                throw new FileSendError.ENCRYPTION_FAILED("File was not encrypted");
             }
 
             FileSendData file_send_data = null;
@@ -86,16 +98,19 @@ public class FileManager : StreamInteractionModule, Object {
                 }
             }
 
+            bool sent = false;
             foreach (FileSender file_sender in file_senders) {
                 if (file_sender.can_send(conversation, file_transfer)) {
                     yield file_sender.send_file(conversation, file_transfer, file_send_data);
+                    sent = true;
                     break;
                 }
-                break;
+            }
+            if (!sent) {
+                throw new FileSendError.UPLOAD_FAILED("File was not sent");
             }
 
             conversation.last_active = file_transfer.time;
-            received_file(file_transfer, conversation);
         } catch (Error e) {
             warning("Send file error: %s", e.message);
             file_transfer.state = FileTransfer.State.FAILED;
@@ -167,11 +182,12 @@ public class FileManager : StreamInteractionModule, Object {
     }
 
     public void add_sender(FileSender file_sender) {
-        // Order file_senders in reverse order of adding them -- HTTP is added
-        // later than Jingle.
-        file_senders.insert(0, file_sender);
+        file_senders.add(file_sender);
         file_sender.upload_available.connect((account) => {
             upload_available(account);
+        });
+        file_senders.sort((a, b) => {
+            return (int) (b.get_priority() - a.get_priority());
         });
     }
 
@@ -273,9 +289,13 @@ public class FileManager : StreamInteractionModule, Object {
     private async void handle_incoming_file(FileProvider file_provider, string info, Jid from, DateTime time, DateTime local_time, Conversation conversation, FileReceiveData receive_data, FileMeta file_meta) {
         FileTransfer file_transfer = new FileTransfer();
         file_transfer.account = conversation.account;
-        file_transfer.counterpart = conversation.counterpart;
-        file_transfer.ourpart = conversation.account.bare_jid.with_resource(conversation.account.resourcepart);
         file_transfer.direction = from.bare_jid.equals(conversation.account.bare_jid) ? FileTransfer.DIRECTION_SENT : FileTransfer.DIRECTION_RECEIVED;
+        file_transfer.counterpart = file_transfer.direction == FileTransfer.DIRECTION_RECEIVED ? from : conversation.counterpart;
+        if (conversation.type_ in new Conversation.Type[]{Conversation.Type.GROUPCHAT, Conversation.Type.GROUPCHAT_PM}) {
+            file_transfer.ourpart = stream_interactor.get_module(MucManager.IDENTITY).get_own_jid(conversation.counterpart, conversation.account) ?? conversation.account.bare_jid;
+        } else {
+            file_transfer.ourpart = conversation.account.bare_jid.with_resource(conversation.account.resourcepart);
+        }
         file_transfer.time = time;
         file_transfer.local_time = local_time;
         file_transfer.provider = file_provider.get_id();

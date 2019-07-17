@@ -35,7 +35,10 @@ public class JingleFileProvider : FileProvider, Object {
     public async InputStream download(FileTransfer file_transfer, FileReceiveData receive_data, FileMeta file_meta) throws FileReceiveError {
         // TODO(hrxi) What should happen if `stream == null`?
         XmppStream? stream = stream_interactor.get_stream(file_transfer.account);
-        Xmpp.Xep.JingleFileTransfer.FileTransfer jingle_file_transfer = file_transfers[file_transfer.info];
+        Xmpp.Xep.JingleFileTransfer.FileTransfer? jingle_file_transfer = file_transfers[file_transfer.info];
+        if (jingle_file_transfer == null) {
+            throw new FileReceiveError.DOWNLOAD_FAILED("Transfer data not available anymore");
+        }
         jingle_file_transfer.accept(stream);
         return jingle_file_transfer.stream;
     }
@@ -88,7 +91,15 @@ public class JingleFileSender : FileSender, Object {
     }
 
     public bool can_send(Conversation conversation, FileTransfer file_transfer) {
-        return file_transfer.encryption == Encryption.NONE;
+        XmppStream? stream = stream_interactor.get_stream(file_transfer.account);
+        if (stream == null) return false;
+
+        foreach (Jid full_jid in stream.get_flag(Presence.Flag.IDENTITY).get_resources(conversation.counterpart)) {
+            if (stream.get_module(Xep.JingleFileTransfer.Module.IDENTITY).is_available(stream, full_jid)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public async FileSendData? prepare_send_file(Conversation conversation, FileTransfer file_transfer) throws FileSendError {
@@ -110,7 +121,7 @@ public class JingleFileSender : FileSender, Object {
 
     public int get_id() { return 1; }
 
-    public float get_priority() { return 1; }
+    public float get_priority() { return 50; }
 }
 
 }

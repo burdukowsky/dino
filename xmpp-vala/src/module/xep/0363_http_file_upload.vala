@@ -49,9 +49,13 @@ public class Module : XmppStreamModule {
         var slot_result = SlotResult();
 
         Iq.Stanza iq = new Iq.Stanza.get(request_node) { to=flag.file_store_jid };
+
+        HttpFileTransferError? e = null;
         stream.get_module(Iq.Module.IDENTITY).send_iq(stream, iq, (stream, iq) => {
             if (iq.is_error()) {
-                throw new HttpFileTransferError.SLOT_REQUEST("Error getting upload/download url (Error Iq)");
+                e = new HttpFileTransferError.SLOT_REQUEST("Error getting upload/download url (Error Iq)");
+                Idle.add((owned) callback);
+                return;
             }
             string? url_get = null, url_put = null;
             // FIXME change back to switch on version in a while (prosody bug)
@@ -62,7 +66,9 @@ public class Module : XmppStreamModule {
                 url_put = iq.stanza.get_deep_string_content(flag.ns_ver + ":slot", flag.ns_ver + ":put");
             }
             if (url_get == null || url_put == null) {
-                throw new HttpFileTransferError.SLOT_REQUEST("Error getting upload/download url: %s".printf(iq.stanza.to_string()));
+                e = new HttpFileTransferError.SLOT_REQUEST("Error getting upload/download url: %s".printf(iq.stanza.to_string()));
+                Idle.add((owned) callback);
+                return;
             }
 
             slot_result.url_get = url_get;
@@ -71,6 +77,10 @@ public class Module : XmppStreamModule {
             Idle.add((owned) callback);
         });
         yield;
+
+        if (e != null) {
+            throw e;
+        }
 
         return slot_result;
     }

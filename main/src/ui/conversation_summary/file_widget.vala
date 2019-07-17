@@ -139,7 +139,7 @@ public class FileWidget : Box {
         icon_name = ContentType.get_generic_icon_name(file_transfer.mime_type ?? "application/octet-stream");
         content_type_image = new Image.from_icon_name(icon_name + "-symbolic", IconSize.DND) { visible=true };
         download_image = new Image.from_icon_name("folder-download-symbolic", IconSize.MENU) { visible=true };
-        spinner = new Spinner() { visible=true };
+        spinner = new Spinner() { active=true, visible=true };
 
         EventBox stack_event_box = new EventBox() { visible=true };
         image_stack = new Stack() { transition_type = StackTransitionType.CROSSFADE, transition_duration=50, valign=Align.CENTER, visible=true };
@@ -266,9 +266,15 @@ public class FileWidget : Box {
             case FileTransfer.State.NOT_STARTED:
                 if (mime_caps != null) {
                     mime_label.label = "<span size='small'>" + _("%s file offered: %s").printf(mime_caps, get_size_string(file_transfer.size)) + "</span>";
-                } else {
+                } else if (file_transfer.size != -1) {
                     mime_label.label = "<span size='small'>" + _("File offered: %s").printf(get_size_string(file_transfer.size)) + "</span>";
+                } else {
+                    mime_label.label = "<span size='small'>" + _("File offered") + "</span>";
                 }
+                image_stack.set_visible_child_name("content_type_image");
+                break;
+            case FileTransfer.State.FAILED:
+                mime_label.label = "<span size='small' foreground=\"#f44336\">" + _("File transfer failed") + "</span>";
                 image_stack.set_visible_child_name("content_type_image");
                 break;
         }

@@ -57,7 +57,9 @@ public class HttpFileSender : FileSender, Object {
     }
 
     public bool can_send(Conversation conversation, FileTransfer file_transfer) {
-        return true; // TODO size
+        if (!max_file_sizes.has_key(conversation.account)) return false;
+
+        return file_transfer.size < max_file_sizes[conversation.account];
     }
 
     public bool is_upload_available(Conversation conversation) {
